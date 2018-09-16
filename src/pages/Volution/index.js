@@ -2,20 +2,18 @@ import React, { Component } from 'react';
 import { withRouter } from 'react-router-dom';
 
 import Layout from '../../components/Layout';
+import Chart from '../Chart.js/Chart';
 import OCAPClient from '@arcblock/ocap-js';
 import { fetchData, url } from '../../service';
-// import ReactHighcharts from 'react-highcharts';
 import RNN from './volution';
-import Chart from '../Chart.js/Chart';
-import './style.css';
 
 const client = new OCAPClient({
   dataSource: "btc",
-  // httpBaseUrl: 'http://47.104.23.85:8080/api', // for dev in china
-  // httpBaseUrl: 'https://ocap.arcblock.io/api', // for production
   enableSubscription: true,
   enableMutation: false,
 });
+// const inputHours = 24;
+// const outputHours = 4;
 
 class Volution extends Component {
 
@@ -32,88 +30,79 @@ class Volution extends Component {
     await this.getBtcPriceAndFormatData();
     let result = await this.getBlocksData()
     if(result){
-      let data =  this.formatVolutionData()
-      let output = this.calculateOutput(this.state.btcPriceData.slice(144))
-      RNN.input(data, output);
       RNN.listen(function(status) {
         console.log(status);
       })
-      setInterval(() => {
-        let btcPriceData = this.state.btcPriceData.filter((value,index) => index % 2 === 0)
-        btcPriceData = btcPriceData.map((item) => item[1])
-        let blocksTotalData = this.state.blocksTotalData.map((item) => item[1])
-        let blocksTxsData = this.state.blocksTxsData.map((item) => item[1])
-        let result = RNN.run({
-          0: btcPriceData.slice(24),
-          1: blocksTotalData.slice(24),
-          2: blocksTxsData.slice(24),
-         })
-        this.setState({
-          // result: JSON.stringify(result),
-          d: result.d,
-          z: result.z
-        })
-        console.log(RNN.run({
-          0: btcPriceData.slice(24),
-          1: blocksTotalData.slice(24),
-          2: blocksTxsData.slice(24),
-         }))
-        }, 1000);
+      this.resetInputOutputData()
     }
-    this.refreshBlocks();
+    this.listenToRefreshBlocks();
   }
   componentWillUpdate(){
     return false
   }
-  
+  resetInputOutputData = () => {
+    console.log("重置RNN的输入")
+    let data =  this.formatVolutionData()
+    let output = this.calculateOutput(this.state.btcPriceData.slice(144))
+    RNN.input(data, output);
+    this.timer2 = setInterval(() => {
+      let btcPriceData = this.state.btcPriceData.filter((value,index) => index % 2 === 0)
+      btcPriceData = btcPriceData.map((item) => item[1])
+      let blocksTotalData = this.state.blocksTotalData.map((item) => item[1])
+      let blocksTxsData = this.state.blocksTxsData.map((item) => item[1])
+      let result = RNN.run({
+        0: btcPriceData.slice(24),
+        1: blocksTotalData.slice(24),
+        2: blocksTxsData.slice(24),
+       })
+      //  console.log(result)
+      this.setState({
+        d: result.d,
+        z: result.z
+      })
+      }, 1000);
+  }
   getBtcPriceAndFormatData = async() => {
     let now = new Date().getTime();
     let start = now - 3600000 * 28;
-    await fetchData(url.getPast7DayBtcPrice + "&start=" + start + "&end=" + now, this.setData)
+    await fetchData(url.getPastBtcPrice + "&start=" + start + "&end=" + now, this.setPriceData)
   }
-  // getBlocksAndFormatData = async() => {
-  //   let blockchainInfo = await client.blockchainInfo({instance: "main"});
-  //   let end = blockchainInfo.blockchainInfo.latestHeight;
-  //   this.setState({
-  //     blocksIndex: end
-  //   })
-  //   let start = end - 168;
-  //   let origin = [];
-  //   let blocksTxsData = [];
-  //   let blocksTotalData = [];
-  //   // let btcPriceData = [];
-  //   console.log(client)
-  //   let res = await client.blocksByHeight({
-  //     fromHeight: start
-  //   })
-  //   origin = origin.concat(res.blocksByHeight.data)
-  //   for(let i = 0; i < 16; i++){
-  //     res = await res.blocksByHeight.next();
-  //     origin = origin.concat(res.blocksByHeight.data)
-  //   }
-    
-  //   origin.map((item, index) => {
-  //     let time = new Date(item.time).getTime()
-  //     blocksTxsData.push([time, item.numberTxs])
-  //     blocksTotalData.push([time, item.total/100000000])
-  //   })
-  //   this.setState({
-  //     blocksData: origin,
-  //     blocksTxsData,
-  //     blocksTotalData
-  //   })
-  // }
   
-  setData = (res) => {
-    // console.log(res.data.map((item) => item[0]))
-    // let btcPriceData = res.data.filter((item, index) => index % 2);
-    // console.log(btcPriceData)
+  setPriceData = (res) => {
     this.setState({
       btcPriceData: res.data
     })
   }
 
-  formatData = (data) => {
+  getBlocksData = async() => {
+    let blockchainInfo = await client.blockchainInfo({instance: "main"});
+    let latest = blockchainInfo.blockchainInfo.latestHeight;
+
+    if(latest != this.state.blocksIndex){
+      let origin = []
+      let res = await client.blocksByHeight({
+        fromHeight: this.state.blocksIndex ? this.state.blocksIndex : latest - 167
+      })
+      origin = origin.concat(res.blocksByHeight.data)
+      while(res.blocksByHeight.data){
+        if(!res.blocksByHeight.next){break}
+        res = await res.blocksByHeight.next();
+        origin = origin.concat(res.blocksByHeight.data)
+      }
+      let len = origin.length;
+      let data = this.state.blocksData.slice(len).concat(origin);
+      this.formatBlocksData(data)
+      this.setState({
+        blocksIndex: latest,
+        blocksData: data
+      })
+
+      return true
+    }
+    return false
+  }
+
+  formatBlocksData = (data) => {
     let blocksTxsData = [];
     let blocksTotalData = [];
     data.map((item, index) => {
@@ -125,18 +114,6 @@ class Volution extends Component {
       blocksTxsData,
       blocksTotalData
     })
-  }
-
-  refreshBlocks = () => {
-    this.timer = setInterval(() => {
-      console.log("hello")
-      let result = this.getBlocksData()
-      if(result){
-        let data =  this.formatVolutionData()
-        let output = this.calculateOutput(this.state.btcPriceData.slice(144))
-        RNN.input(data, output)
-      }
-    }, 100000)
   }
 
   formatVolutionData = () => {
@@ -151,32 +128,19 @@ class Volution extends Component {
     }
   }
 
-  getBlocksData = async() => {
-    let blockchainInfo = await client.blockchainInfo({instance: "main"});
-    let latest = blockchainInfo.blockchainInfo.latestHeight;
-
-    if(latest !== this.state.blocksIndex){
-      let origin = []
-      let res = await client.blocksByHeight({
-        fromHeight: this.state.blocksIndex ? this.state.blocksIndex : latest - 167
-      })
-      origin = origin.concat(res.blocksByHeight.data)
-      while(res.blocksByHeight.data){
-        if(!res.blocksByHeight.next){break}
-        res = await res.blocksByHeight.next();
-        origin = origin.concat(res.blocksByHeight.data)
+  listenToRefreshBlocks = () => {
+    this.timer1 = setInterval(async() => {
+      console.log("监听新的区块中")
+      let result = this.getBlocksData()
+      if(result){
+        console.log("监听到新的区块")
+        clearInterval(this.timer2)
+        await this.getBtcPriceAndFormatData();
+        this.resetInputOutputData()
+      }else{
+        console.log("没有监听到新的区块")
       }
-      let len = origin.length;
-      let data = this.state.blocksData.slice(len).concat(origin);
-      this.formatData(data)
-      this.setState({
-        blocksIndex: latest,
-        blocksData: data
-      })
-
-      return true
-    }
-    return false
+    }, 100000)
   }
 
   calculateOutput(d) {
@@ -184,19 +148,83 @@ class Volution extends Component {
     let end = d.pop();
     return (end-start)/Math.sqrt((end-start)**2+24**2)>0?{d:0,z:1}:{d:1, z:0};
   }
-  render() {
 
+  render() {
     return (
       <Layout>
         <div style={{padding: 40}}>
           <Chart btcPriceData={this.state.btcPriceData} blocksTxsData={this.state.blocksTxsData} blocksTotalData={this.state.blocksTotalData}/>
-          <div>{this.state.result}</div>
-          <h3>未来4小时</h3>
-          <div>涨的概率：{this.state.z * 100} %</div>
-          <div>跌的概率：{this.state.d * 100} %</div>
+          <div style={styles.container}>
+            <h3>未来4小时</h3>
+            <div style={{display: "flex"}}>
+              <div style={{...styles.container, width: 200}}>
+                <div style={{...styles.cycle, ...styles.green}}>涨</div>
+                <div>{this.state.z * 100} %</div>
+              </div>
+              <div style={styles.progressContainer}>
+                <div style={{...styles.progress, backgroundColor: "green", width: 200 * this.state.z, position: "relative"}}>
+                  {
+                    this.state.d !== 0 ? <div style={styles.tag}></div> : null
+                  }
+                </div>
+                <div style={{...styles.progress, backgroundColor: "red", width: 200 * this.state.d}}></div>
+              </div>
+              <div style={{...styles.container, width: 200}}>
+                <div style={{...styles.cycle, ...styles.red}}>跌</div>
+                <div>{this.state.d * 100} %</div>
+              </div>
+            </div>
+          </div>
         </div>
       </Layout>
     );
+  }
+}
+
+const styles = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  cycle: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 100,
+    height: 100,
+    fontSize: 30,
+    fontWeight: "bold",
+    borderRadius: 100,
+  },
+  green: {
+    color: "green",
+    border: "2px solid green"
+  },
+  red: {
+    color: "red",
+    border: "2px solid red"
+  },
+  progressContainer: {
+    width: 200,
+    display: "flex",
+    alignItems: "center",
+    // marginTop: 90
+  },
+  progress: {
+    height: 20,
+    float: "left"
+  },
+  tag: {
+    position: "absolute",
+    bottom: -10,
+    right: -5,
+    width: 0,
+    height: 0,
+    borderStyle: "solid",
+    borderWidth: "0 5px 10px 5px",
+    borderColor: "transparent transparent #007bff transparent"
   }
 }
 

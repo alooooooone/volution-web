@@ -2,9 +2,6 @@ import React, { PureComponent } from 'react';
 import ReactHighcharts from 'react-highcharts';
 
 class Chart extends PureComponent{
-    componentWillUpdate(){
-        return false
-    }
     render(){
         return (
         <ReactHighcharts
@@ -19,8 +16,6 @@ class Chart extends PureComponent{
                             align: 'right',
                             formatter: function() {
                                 let date = new Date(this.value);
-                                // return date.toLocaleDateString()
-                                let year = date.getFullYear();
                                 let month = date.getMonth() + 1;
                                 let hours = date.getHours();
                                 hours = hours > 9 ? hours : "0" + hours;
@@ -55,7 +50,7 @@ class Chart extends PureComponent{
                         opposite: true,
                         offset: 0,
                         title: {
-                        text: "btc价格",
+                        text: "btc价格(美元)",
                         offset: 0
                         }
                     },{
@@ -67,7 +62,7 @@ class Chart extends PureComponent{
                         }
                     },{
                         title: {
-                        text: "区块交易总额(个)",
+                        text: "区块交易总额(个btc)",
                         },
                         labels: {
                         rotation: -30
